@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Mini Battle World</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#10182b;font-family:system-ui,Arial;color:white;touch-action:none}
+#wrap{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(#10182b,#26365b)}
+canvas{display:block;width:100%;height:100%;max-width:1100px;max-height:620px;object-fit:contain;background:#92d9f4}
+#hud{position:absolute;top:10px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;pointer-events:none;text-shadow:0 2px 3px #14213d;font-weight:800}
+.pill{background:#14213dcc;border:1px solid #ffffff55;border-radius:14px;padding:7px 12px}
+#controls{position:absolute;inset:0;pointer-events:none}
+#stick{position:absolute;left:22px;bottom:22px;width:112px;height:112px;border-radius:50%;background:#14213b77;border:2px solid #ffffff88;pointer-events:auto}
+#nub{position:absolute;left:31px;top:31px;width:46px;height:46px;border-radius:50%;background:#ffffffbb;border:2px solid #fff}
+.btn{position:absolute;bottom:28px;border:2px solid #ffffffaa;border-radius:50%;color:white;font-weight:900;display:grid;place-items:center;pointer-events:auto;user-select:none;text-shadow:0 2px 2px #333;box-shadow:0 4px 0 #0004}
+#shoot{right:24px;width:82px;height:82px;background:#ff655fdd;font-size:15px}
+#jump{right:118px;bottom:35px;width:62px;height:62px;background:#4b8ef0dd;font-size:12px}
+#overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#10182bcc;text-align:center;padding:20px}
+.card{max-width:430px;background:#172440;border:2px solid #ffffff44;border-radius:22px;padding:24px;box-shadow:0 12px 35px #0006}
+h1{margin:0 0 8px;font-size:clamp(26px,6vw,42px);color:#ffe36e}
+p{line-height:1.45;color:#e7efff}
+button{border:0;border-radius:14px;background:#ffd34f;color:#18213a;padding:13px 24px;font-weight:900;font-size:18px}
+.small{font-size:12px;color:#b9c9e8}
+@media (min-width:700px){#stick{left:calc(50% - 500px + 22px)}#shoot{right:calc(50% - 500px + 24px)}#jump{right:calc(50% - 500px + 118px)}}
+</style>
+</head>
+<body>
+<div id="wrap">
+<canvas id="game" width="960" height="540"></canvas>
+<div id="hud"><div class="pill">❤️ <span id="hp">3</span> &nbsp; ⭐ <span id="score">0</span></div><div class="pill">LEVEL <span id="level">1</span></div></div>
+<div id="controls">
+ <div id="stick"><div id="nub"></div></div>
+ <div class="btn" id="jump">JUMP</div><div class="btn" id="shoot">SHOOT</div>
+</div>
+<div id="overlay"><div class="card"><h1>MINI BATTLE WORLD</h1><p>2D animated mini shooter<br>Anime + cartoon + pixel-art inspired world!</p><p>Move with the left joystick. Tap <b>JUMP</b> to leap and hold <b>SHOOT</b> to launch energy stars at the silly bots.</p><button id="start">PLAY NOW ▶</button><p class="small">Made for mobile browsers • Best in landscape mode</p></div></div>
+</div>
+<script>
+const c=document.getElementById('game'),ctx=c.getContext('2d');
+const $=id=>document.getElementById(id);
+let running=false,score=0,hp=3,level=1,frame=0,spawn=0,shots=[],foes=[],particles=[],keys={left:false,right:false};
+const player={x:145,y:405,vy:0,onGround:true,inv:0,face:1};
+const ground=450;
+function reset(){score=0;hp=3;level=1;frame=0;spawn=0;shots=[];foes=[];particles=[];player.x=145;player.y=405;player.vy=0;player.inv=0;updateHud()}
+function updateHud(){$('hp').textContent=hp;$('score').textContent=score;$('level').textContent=level}
+function rounded(x,y,w,h,r,col){ctx.fillStyle=col;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill()}
+function drawBG(){
+ let g=ctx.createLinearGradient(0,0,0,540);g.addColorStop(0,'#77d4f2');g.addColorStop(1,'#e1f7ff');ctx.fillStyle=g;ctx.fillRect(0,0,960,540);
+ // clouds
+ for(let i=0;i<5;i++){let x=(i*230-(frame*.25)%1150+1150)%1150-100,y=70+(i%3)*48;ctx.fillStyle='#ffffffaa';ctx.beginPath();ctx.arc(x,y,25,0,7);ctx.arc(x+27,y-10,31,0,7);ctx.arc(x+58,y,24,0,7);ctx.fill()}
+ // distant pixel hills
+ ctx.fillStyle='#80c99a';ctx.beginPath();ctx.moveTo(0,400);for(let x=0;x<=960;x+=80)ctx.lineTo(x,350+Math.sin(x*.018)*25);ctx.lineTo(960,460);ctx.lineTo(0,460);ctx.fill();
+ ctx.fillStyle='#4eaa78';ctx.fillRect(0,ground,960,90);
+ ctx.fillStyle='#39895f';for(let x=0;x<960;x+=42)ctx.fillRect((x-(frame*2)%42),ground+28,22,8);
+ ctx.fillStyle='#fff4';ctx.fillRect(0,ground,960,5);
+ // tiny flowers
+ for(let x=30;x<960;x+=95){let xx=(x-frame*1.2%95+95)%960;ctx.fillStyle='#ffe16a';ctx.fillRect(xx,490,5,5);ctx.fillStyle='#fff';ctx.fillRect(xx-4,486,4,4)}
+}
+function drawPlayer(){
+ ctx.save();ctx.translate(player.x,player.y);if(player.face<0)ctx.scale(-1,1);
+ if(player.inv>0&&Math.floor(frame/5)%2===0)ctx.globalAlpha=.45;
+ // shadow
+ ctx.fillStyle='#24516a55';ctx.beginPath();ctx.ellipse(0,47,25,7,0,0,7);ctx.fill();
+ // legs animated
+ let leg=Math.sin(frame*.22)*5;
+ rounded(-15,22,12,24,5,'#263b75');rounded(3,22+leg,12,24,5,'#263b75');
+ rounded(-18,41,18,8,4,'#ffcf55');rounded(0,41+leg,18,8,4,'#ffcf55');
+ // body
+ rounded(-19,-10,38,38,10,'#ff8a54');rounded(-16,-6,32,23,7,'#ffb36b');
+ // scarf
+ ctx.fillStyle='#ffe66d';ctx.fillRect(-18,0,36,6);
+ // head
+ ctx.fillStyle='#f4bd91';ctx.beginPath();ctx.arc(0,-23,17,0,7);ctx.fill();
+ // anime hair
+ ctx.fillStyle='#29345f';ctx.beginPath();ctx.arc(-2,-30,18,Math.PI,Math.PI*2);ctx.lineTo(14,-23);ctx.lineTo(5,-27);ctx.lineTo(0,-18);ctx.lineTo(-7,-27);ctx.lineTo(-16,-20);ctx.fill();
+ // eye
+ ctx.fillStyle='#18223b';ctx.fillRect(7,-24,4,4);
+ // blaster
+ rounded(13,-5,26,10,4,'#596b8d');ctx.fillStyle='#ffe36e';ctx.fillRect(34,-3,7,5);
+ ctx.restore();
+}
+function drawBot(e){
+ ctx.save();ctx.translate(e.x,e.y);
+ let bob=Math.sin(frame*.12+e.phase)*4;
+ // pixel-ish shadow
+ ctx.fillStyle='#183d5555';ctx.beginPath();ctx.ellipse(0,33,22,6,0,0,7);ctx.fill();
+ rounded(-19,-17+bob,38,42,9,e.color);rounded(-13,-10+bob,26,20,5,'#d8f7ff');
+ ctx.fillStyle='#27334f';ctx.fillRect(-8,-4+bob,5,6);ctx.fillRect(5,-4+bob,5,6);
+ ctx.fillStyle='#fff';ctx.fillRect(-7,-3+bob,2,2);ctx.fillRect(6,-3+bob,2,2);
+ rounded(-23,0+bob,7,17,3,'#465b83');rounded(16,0+bob,7,17,3,'#465b83');
+ ctx.fillStyle='#ffe36e';ctx.fillRect(-5,13+bob,10,4);
+ ctx.restore();
+}
+function burst(x,y,color){for(let i=0;i<9;i++)particles.push({x,y,vx:(Math.random()-.5)*5,vy:(Math.random()-.7)*5,life:24,color})}
+function shoot(){if(!running)return; if(frame%11===0)shots.push({x:player.x+player.face*39,y:player.y-5,vx:player.face*10})}
+function jump(){if(running&&player.onGround){player.vy=-12;player.onGround=false}}
+function update(){
+ frame++;if(player.inv>0)player.inv--;
+ let dx=(keys.right?1:0)-(keys.left?1:0);
+ player.x+=dx*4.3; if(dx)player.face=dx;
+ player.x=Math.max(35,Math.min(925,player.x));
+ player.y+=player.vy;player.vy+=.58;
+ if(player.y>=405){player.y=405;player.vy=0;player.onGround=true}
+ if(shootHeld)shoot();
+ if(++spawn>Math.max(35,95-level*5)){spawn=0;foes.push({x:990,y:405,hp:1+Math.floor(level/4),phase:Math.random()*6,color:['#8b7cf6','#ff7c91','#64c9a2','#f4b84e'][Math.floor(Math.random()*4)],speed:1.5+level*.12})}
+ for(let s of shots)s.x+=s.vx;
+ shots=shots.filter(s=>s.x>-20&&s.x<980);
+ for(let e of foes){e.x-=e.speed;if(Math.abs(e.x-player.x)<30&&Math.abs(e.y-player.y)<35&&player.inv===0){hp--;player.inv=65;burst(player.x,player.y,'#ffed72');updateHud();if(hp<=0)endGame()}}
+ for(let s of shots){for(let e of foes){if(!e.dead&&Math.abs(s.x-e.x)<22&&Math.abs(s.y-(e.y-2))<26){e.hp--;s.x=1200;burst(e.x,e.y,'#ffe36e');if(e.hp<=0){e.dead=true;score+=10;updateHud()}}}}
+ foes=foes.filter(e=>e.x>-40&&!e.dead);
+ if(score>=level*100){level++;updateHud()}
+ for(let p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=.12;p.life--}
+ particles=particles.filter(p=>p.life>0);
+}
+let shootHeld=false;
+function draw(){
+ drawBG();
+ // decorative floating stars
+ for(let i=0;i<12;i++){let x=(i*89-frame*.7%1060+1060)%1060-50;ctx.fillStyle='#fff8';ctx.font='18px sans-serif';ctx.fillText('✦',x,180+(i%4)*37)}
+ foes.forEach(drawBot);drawPlayer();
+ for(let s of shots){ctx.fillStyle='#fff5a6';ctx.beginPath();ctx.arc(s.x,s.y,7,0,7);ctx.fill();ctx.fillStyle='#ff9e48';ctx.beginPath();ctx.arc(s.x,s.y,3,0,7);ctx.fill()}
+ for(let p of particles){ctx.globalAlpha=p.life/24;ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,5,5)}ctx.globalAlpha=1;
+}
+function loop(){if(!running)return;update();draw();requestAnimationFrame(loop)}
+function endGame(){running=false;$('overlay').style.display='flex';$('overlay').innerHTML=`<div class="card"><h1>GAME OVER</h1><p>Your score: <b>${score}</b><br>Level reached: <b>${level}</b></p><button id="again">PLAY AGAIN ↻</button></div>`;$('again').onclick=start}
+function start(){reset();$('overlay').style.display='none';running=true;loop()}
+$('start').onclick=start;
+const stick=$('stick'),nub=$('nub');let stickId=null,origin={x:0,y:0};
+function stickMove(e){let r=stick.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let x=e.clientX-cx,y=e.clientY-cy,len=Math.hypot(x,y),max=35;if(len>max){x=x/len*max;y=y/len*max}nub.style.transform=`translate(${x}px,${y}px)`;keys.left=x<-10;keys.right=x>10}
+stick.addEventListener('pointerdown',e=>{stickId=e.pointerId;stick.setPointerCapture(stickId);stickMove(e)});
+stick.addEventListener('pointermove',e=>{if(e.pointerId===stickId)stickMove(e)});
+function release(){stickId=null;keys.left=keys.right=false;nub.style.transform='translate(0,0)'}
+stick.addEventListener('pointerup',release);stick.addEventListener('pointercancel',release);
+$('shoot').addEventListener('pointerdown',e=>{e.preventDefault();shootHeld=true});['pointerup','pointercancel','pointerleave'].forEach(ev=>$('shoot').addEventListener(ev,()=>shootHeld=false));
+$('jump').addEventListener('pointerdown',e=>{e.preventDefault();jump()});
+window.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='a')keys.left=true;if(e.key==='ArrowRight'||e.key==='d')keys.right=true;if(e.key===' '||e.key==='ArrowUp')jump();if(e.key==='Enter'&& !running)start();if(e.key==='z')shootHeld=true});
+window.addEventListener('keyup',e=>{if(e.key==='ArrowLeft'||e.key==='a')keys.left=false;if(e.key==='ArrowRight'||e.key==='d')keys.right=false;if(e.key==='z')shootHeld=false});
+draw();
+</script>
+</body></html>
